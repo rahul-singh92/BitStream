@@ -1,0 +1,12 @@
+{
+  "name": "bitstream",
+  "version": "1.0.0",
+  "description": "A torrent app for downloading files",
+  "license": "ISC",
+  "author": "Rahul Singh Jadoun",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
