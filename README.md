@@ -12,6 +12,8 @@ To understand how BitStream operates, the core BitTorrent mechanics can be broke
 2. **Direct Peer-to-Peer Communication**  
    Once the client receives the peer list, it bypasses the tracker and connects directly to those users. The client and peers exchange structured network messages to declare which file pieces they currently hold. Based on this mutual availability data, the client requests missing pieces and begins the downloading process.
 
+---
+
 ## Bencoding (Data Format)
 
 BitTorrent uses a terse data serialization format called **Bencoding** to structure `.torrent` files and tracker network messages. It supports four data types:
@@ -26,7 +28,43 @@ BitTorrent uses a terse data serialization format called **Bencoding** to struct
 * **Dictionaries** (`d<key><value>e`): Keys must be bencoded strings and appear in sorted binary order.
   * Example: `d3:cow3:mooe` &rarr; `{"cow": "moo"}`
 
+---
+
+## Metainfo File (`.torrent`) Structure
+
+All data in a `.torrent` file is a bencoded dictionary. It contains the core metadata required to connect to the swarm, locate files, and verify data integrity.
+
+### Root Dictionary Keys
+
+| Key | Type | Description |
+|---|---|---|
+| **`info`** | Dictionary | Core file metadata (see below). |
+| **`announce`** | String | The tracker's main URL. |
+| **`announce-list`** | List | (Optional) Backup or alternate tracker URLs. |
+| **`creation date`** | Integer | (Optional) UNIX epoch timestamp of creation. |
+| **`comment` / `created by`** | String | (Optional) Free-form author text and program name. |
+
+### The `info` Dictionary
+
+The `info` dictionary describes the actual files being shared. It supports two structural modes depending on whether the torrent is for a single file or a folder. 
+
+**Common Fields:**
+*   **`piece length`:** Size of each chunk in bytes (typically a power of 2, like 256 KB or 512 KB).
+*   **`pieces`:** A single, continuous byte string containing the concatenated 20-byte SHA1 hashes for every piece. 
+*   **`private`:** (Optional) If set to `1`, the client must restrict peer discovery strictly to the tracker (disabling DHT/PEX).
+
+**Mode-Specific Fields:**
+
+| Mode | Required Fields |
+|---|---|
+| **Single File** | `name` (the filename) and `length` (file size in bytes). |
+| **Multiple File** | `name` (the root directory name) and `files` (a list of dictionaries containing the `length` and `path` for each individual file). |
+
+> **Note on Pieces:** For multi-file torrents, files are treated as one continuous data stream when generating piece boundaries. The final piece is always irregular in size, and pieces can overlap file boundaries.
+
+---
+
 ## Features
-- Core BitTorrent protocol integration (In Development)
-- Tracker communication and peer discovery
-- Direct peer-to-peer piece exchange
+* Core BitTorrent protocol integration (In Development)
+* Tracker communication and peer discovery
+* Direct peer-to-peer piece exchange
