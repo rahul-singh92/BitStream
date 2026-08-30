@@ -10,6 +10,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "bencode": "^2.0.3"
+    "bencode": "^2.0.3",
+    "bignum": "^0.13.1"
   }
 }
