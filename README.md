@@ -153,6 +153,48 @@ Once a `connection_id` is successfully obtained, the client sends an announce re
 
 ---
 
+## Peer Wire Protocol (TCP)
+
+Once a list of peers is acquired from the tracker, the client establishes TCP connections with them to actually download the files. Torrent files are broken into smaller chunks called **pieces**, which are further divided into **blocks** for network transmission. 
+
+### Connection State Overview
+A client maintains four state flags for every connected peer. Data blocks are only transferred when the downloading client is "interested" and the uploading client has "unchoked" them.
+
+*   `am_choking` (Default: `1`): This client is not answering requests from the peer.
+*   `am_interested` (Default: `0`): This client does not want blocks from the peer.
+*   `peer_choking` (Default: `1`): The peer is not answering requests from this client.
+*   `peer_interested` (Default: `0`): The peer does not want blocks from this client.
+
+### 1. The Handshake
+The handshake must be the very first message sent by the initiator of the connection. It is 68 bytes long in standard version 1.0.
+
+*   **Format:** `<pstrlen><pstr><reserved><info_hash><peer_id>`
+    *   `pstrlen`: Length of protocol identifier (byte value `19`).
+    *   `pstr`: The string `"BitTorrent protocol"`.
+    *   `reserved`: 8 bytes of zeroes (used for future protocol extensions).
+    *   `info_hash`: 20-byte SHA1 hash of the torrent's info dictionary.
+    *   `peer_id`: 20-byte unique ID of the client connecting (often starts with client identification strings, like `-AZ...` for Azureus).
+
+### 2. Protocol Messages
+After the handshake, all communication takes the form of length-prefixed messages. Unless otherwise specified, all integers are 4-byte big-endian.
+
+*   **Message Format:** `<length prefix><message ID><payload>`
+
+| Message | ID | Format | Description |
+|---|---|---|---|
+| **Keep-Alive** | None | `<len=0000>` | Keeps connection active. Sent typically every 2 minutes. |
+| **Choke** | 0 | `<len=0001><id=0>` | Notifies peer that requests will be ignored. |
+| **Unchoke** | 1 | `<len=0001><id=1>` | Notifies peer that requests will now be answered. |
+| **Interested** | 2 | `<len=0001><id=2>` | Client expresses desire to download pieces. |
+| **Not Interested**| 3 | `<len=0001><id=3>` | Client no longer wants pieces from this peer. |
+| **Have** | 4 | `<len=0005><id=4><piece index>` | Broadcasts that a new piece was downloaded and verified. |
+| **Bitfield** | 5 | `<len=0001+X><id=5><bitfield>`| Sent immediately after handshaking. Represents all pieces currently held as a binary bitfield. |
+| **Request** | 6 | `<len=0013><id=6><idx><beg><len>`| Requests a specific block. Standard block size (`len`) is 16 KB. |
+| **Piece** | 7 | `<len=0009+X><id=7><idx><beg><blk>`| Transfers the actual block data payload. |
+| **Cancel** | 8 | `<len=0013><id=8><idx><beg><len>`| Cancels a pending request (used during the "End Game" phase). |
+| **Port** | 9 | `<len=0003><id=9><port>` | Broadcasts DHT listening port for distributed routing. |
+
+---
 ## Features
 * Core BitTorrent protocol integration (In Development)
 * Tracker communication and peer discovery (HTTP and UDP)
