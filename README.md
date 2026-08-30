@@ -51,7 +51,7 @@ The `info` dictionary describes the actual files being shared. It supports two s
 **Common Fields:**
 *   **`piece length`:** Size of each chunk in bytes (typically a power of 2, like 256 KB or 512 KB).
 *   **`pieces`:** A single, continuous byte string containing the concatenated 20-byte SHA1 hashes for every piece. 
-*   **`private`:** (Optional) If set to `1`, the client must restrict peer discovery strictly to the tracker (disabling DHT(Distributed Hash Table)/PEX(Peer Exchange)).
+*   **`private`:** (Optional) If set to `1`, the client must restrict peer discovery strictly to the tracker (disabling DHT/PEX).
 
 **Mode-Specific Fields:**
 
@@ -64,7 +64,37 @@ The `info` dictionary describes the actual files being shared. It supports two s
 
 ---
 
+## UDP Tracker Protocol
+
+To get a list of peers via UDP, the client communicates with the tracker using a strict 4-step sequence:
+
+1. **Connect Request:** Send an initial request to the tracker.
+2. **Connect Response:** Receive and extract the `connection_id`.
+3. **Announce Request:** Use the `connection_id` to tell the tracker which files you are interested in.
+4. **Announce Response:** Receive and extract the resulting peer list.
+
+### Connect Messaging Format
+Both the connect request and response are lightweight 16-byte payloads.
+
+**Connect Request (16 bytes):**
+| Offset | Size | Name | Value |
+|---|---|---|---|
+| 0 | 64-bit int | `connection_id` | `0x41727101980` (Magic constant) |
+| 8 | 32-bit int | `action` | `0` (Connect) |
+| 12 | 32-bit int | `transaction_id` | Random integer |
+
+*(Example buffer: `<Buffer 00 00 04 17 27 10 19 80 00 00 00 00 a6 ec 6b 7d>`)*
+
+**Connect Response (16 bytes):**
+| Offset | Size | Name | Value |
+|---|---|---|---|
+| 0 | 32-bit int | `action` | `0` (Connect) |
+| 4 | 32-bit int | `transaction_id` | Matches your request |
+| 8 | 64-bit int | `connection_id` | Assigned by the tracker |
+
+---
+
 ## Features
 * Core BitTorrent protocol integration (In Development)
-* Tracker communication and peer discovery
+* Tracker communication and peer discovery via UDP
 * Direct peer-to-peer piece exchange
