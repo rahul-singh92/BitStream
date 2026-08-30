@@ -1,8 +1,8 @@
 'use strict';
 const fs = require('fs');
 const bencode = require('bencode');
-const tracker = require('./tracker');
-const torrentParser = require('./torrent-parser');
+const tracker = require('./src/tracker');
+const torrentParser = require('./src/torrent-parser');
 
 // const torrent = fs.readFileSync('puppy.torrent'); // It returns a buffer, not a string
 // const torrent = bencode.decode(fs.readFileSync('puppy.torrent'));

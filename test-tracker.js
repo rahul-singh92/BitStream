@@ -1,8 +1,8 @@
 'use strict';
 
 const fs = require('fs');
-const tracker = require('./tracker');
-const torrentParser = require('./torrent-parser');
+const tracker = require('./src/tracker');
+const torrentParser = require('./src/torrent-parser');
 
 const torrent = torrentParser.open("Marvel's Spider-Man 2 [FitGirl Repack].torrent")
 
