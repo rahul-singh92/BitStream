@@ -51,7 +51,7 @@ The `info` dictionary describes the actual files being shared. It supports two s
 **Common Fields:**
 *   **`piece length`:** Size of each chunk in bytes (typically a power of 2, like 256 KB or 512 KB).
 *   **`pieces`:** A single, continuous byte string containing the concatenated 20-byte SHA1 hashes for every piece. 
-*   **`private`:** (Optional) If set to `1`, the client must restrict peer discovery strictly to the tracker (disabling DHT/PEX).
+*   **`private`:** (Optional) If set to `1`, the client must restrict peer discovery strictly to the tracker (disabling DHT(Distributed Hash Table)/PEX(Peer Exchange)).
 
 **Mode-Specific Fields:**
 

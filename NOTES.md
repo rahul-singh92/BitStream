@@ -16,3 +16,7 @@ The **`udp://`** protocol is used instead of **`http://`** in BitTorrent tracker
 * **Peer Discovery:** It shares a list of IP addresses downloaded by other users tracking the exact same file.
 * **Swarm Coordination:** It connects you to uploaders (seeders) and downloaders (leechers) to maximize your download speeds.
 * **Real-Time Statistics:** It counts and updates the active number of seeds and peers for torrent clients.
+
+---
+
+> **Note:** While UDP is perfect for lightweight tracker communication, the actual file transfer between peers typically uses **TCP** (or reliable protocols like uTP). Because torrent files are large and split into thousands of pieces, TCP is necessary during the actual peer-to-peer transfer to ensure every single piece of data arrives perfectly intact, verified, and in the correct order.
