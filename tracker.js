@@ -1,7 +1,7 @@
 'use strict';
 
 const dgram = require('dgram');
-const Buffer = require('Buffer').Buffer;
+const Buffer = require('buffer').Buffer;
 const urlParse = require('url').parse;
 const crypto = require('crypto');
 const torrentParser = require('./torrent-parser');
@@ -31,12 +31,15 @@ module.exports.getPeers = (torrent, callback) => {
 function udpSend(socket, message, rawURL, callback = () => {})
 {
     const url = urlParse(rawURL);
-    socket.send(message, 0, message.length, url.port, url.host, callback);
+    const port = Number(url.port);
+    socket.send(message, 0, message.length, port, url.hostname, callback);
 }
 
 function respType(resp)
 {
-
+    const action = resp.readUInt32BE(0);
+    if(action == 0) return 'connect';
+    if(action == 1) return 'announce';
 }
 
 // connection format
@@ -116,13 +119,13 @@ function buildAnnounceReq(connId, torrent, port=6881) // default 6881-6889 for t
     // event
     buf.writeUInt32BE(0, 80);
     // ip address
-    buf.writeUInt32BE(0, 80); // unsigned int
+    buf.writeUInt32BE(0, 84); // unsigned int
     // key
     crypto.randomBytes(4).copy(buf, 88);
     // num want
     buf.writeInt32BE(-1, 92); // int
     // port
-    buf.writeUInt32BE(port, 96);
+    buf.writeUInt16BE(port, 96);
 
     return buf;
 }
@@ -153,12 +156,13 @@ function parseAnnounceReq(resp)
     return {
         action: resp.readUInt32BE(0),
         transactionId: resp.readUInt32BE(4),
-        leechers: resp.readUInt32BE(8),
-        seeders: resp.readUInt32BE(12),
+        interval: resp.readUInt32BE(8),
+        leechers: resp.readUInt32BE(12),
+        seeders: resp.readUInt32BE(16),
         peers: group(resp.slice(20), 6).map(address => {
             return {
                 ip: address.slice(0, 4).join(' '),
-                port: address.readUInt32BE(4)
+                port: address.readUInt16BE(4)
             }
         })
     }
