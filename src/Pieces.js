@@ -1,5 +1,6 @@
 'use strict';
 
+const download = require('./download');
 const tp = require('./torrent-parser');
 
 //Holds an array of arrays, where the inner arrays hold the status of a block at a give piece index.
@@ -40,5 +41,20 @@ module.exports = class {
     isDone()
     {
         return this._received.every(blocks => blocks.every(i => i));
+    }
+
+    printPercentDone() 
+    {
+        const downloaded = this._received.reduce((totalBlocks, blocks) => {
+            return blocks.filter(i => i).length + totalBlocks;
+        }, 0);
+
+        const total = this._received.reduce((totalBlocks, blocks) => {
+            return blocks.length + totalBlocks;
+        }, 0);
+
+        const percent = Math.floor(download / total * 100);
+
+        process.stdout.write('progress: ' + percent + '%\r');
     }
 };

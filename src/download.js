@@ -18,7 +18,7 @@ module.exports = (torrent, path) => {
     });
 };
 
-function download(peer, torrent, pieces)
+function download(peer, torrent, pieces, file)
 {
     const socket = new net.Socket();
     socket.on('error', console.log);
@@ -27,10 +27,10 @@ function download(peer, torrent, pieces)
     });
     const queue = new Queue(torrent);
     // the socket might recieve part of message or multiple message at once. so every message start with its length to help find out the start and end of the message
-    onWholeMsg(socket, msg => msgHandler(msg, socket, pieces, queue));
+    onWholeMsg(socket, msg => msgHandler(msg, socket, pieces, queue, torrent, file));
 }
 
-function msgHandler(msg, socket, pieces, queue)
+function msgHandler(msg, socket, pieces, queue, torrent, file)
 {
     if(isHandShake(msg)) socket.write(message.buildInterested());
     else
@@ -39,16 +39,16 @@ function msgHandler(msg, socket, pieces, queue)
 
         if(m.id === 0) chokeHandler(socket);
         if(m.id === 1) unchokeHandler(socket, pieces, queue);
-        if(m.id === 4) haveHandler(m.payload, socket, pieces, queue);
-        if(m.id === 5) bitfieldHandler(m.payload, socket, pieces, queue);
-        if(m.id === 7) pieceHandler(socket, pieces, queue); // ....
+        if(m.id === 4) haveHandler(socket, pieces, queue, m.payload);
+        if(m.id === 5) bitfieldHandler(socket, pieces, queue, m.payload);
+        if(m.id === 7) pieceHandler(socket, pieces, queue, torrent, file, m.payload);
     }
 }
 
 function isHandShake(msg)
 {
     return msg.length === msg.readUInt8(0) + 49 && 
-           msg.toString('utf8', 1) === 'BitTorrent protocol';
+           msg.toString('utf8', 1, 20) === 'BitTorrent protocol';
 }
 
 function chokeHandler()
@@ -62,7 +62,7 @@ function unchokeHandler()
     requestPiece(socket, peices, queue);
 }
 
-function haveHandler(payload, socket, pieces, queue)
+function haveHandler(socket, pieces, queue, payload)
 {
     const pieceIndex = payload.readUInt32BE(0);
     const queueEmpty = queue.length === 0;
@@ -70,7 +70,7 @@ function haveHandler(payload, socket, pieces, queue)
     if(queueEmpty) requestPiece(socket, pieces, queue);
 }
 
-function bitfieldHandler(payload, socket, pieces, queue)
+function bitfieldHandler(socket, pieces, queue, payload)
 {
     const queueEmpty = queue.length === 0;
     payload.forEach((byte, i) => {
@@ -85,7 +85,8 @@ function bitfieldHandler(payload, socket, pieces, queue)
 
 function pieceHandler(socket, pieces, queue, torrent, file, pieceResp)
 {
-    console.log(pieceResp);
+    pieces.printPercentDone();
+    
     pieces.addReceived(pieceResp);
 
     const offset = pieceResp.index * torrent.info['piece length'] + pieceResp.begin;

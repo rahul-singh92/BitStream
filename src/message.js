@@ -2,6 +2,7 @@
 
 const Buffer = require('buffer').Buffer;
 const torrentParser = require('./torrent-parser');
+const util = require('./util');
 
 // handshake: <pstrlen><pstr><reserved><info_hash><peer_id>
 
@@ -23,7 +24,8 @@ module.exports.buildHandShake = torrent => {
     // info hash
     torrentParser.infoHash(torrent).copy(buf, 28);
     // peer id
-    buf.write(util)
+    util.genId().copy(buf, 48);
+    return buf;
 };
 
 module.exports.buildKeepAlive = () => Buffer.alloc(4);
@@ -91,7 +93,7 @@ module.exports.buildRequest = payload => {
     // length
     buf.writeUInt32BE(13, 0);
     // id
-    buf.writeUInt8(13, 0);
+    buf.writeUInt8(6, 4);
     // piece index
     buf.writeUInt32BE(payload.index, 5);
     // begin
