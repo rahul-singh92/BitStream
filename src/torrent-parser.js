@@ -22,3 +22,31 @@ module.exports.infoHash = torrent => {
     // Also because it is very unlikely for two input to output same hash value, and because the input contains information about every piece of the torrent file, it is good to uniquely identify a torrent.
     return crypto.createHash('sha1').update(info).digest(); // SHA1 is used by bittorent. It return a fix length buffer
 }
+
+// piece length can be found in torrent file and block length is 2^14 bytes by convention
+
+module.exports.BLOCK_LEN = Math.pow(2, 14);
+
+module.exports.pieceLen = (torrent, pieceIndex) => {
+    const totalLength = bignum.fromBuffer(this.size(torrent)).toNumber();
+    const pieceLength = torrent.info['piece length'];
+
+    const lastPieceLength = totalLength % pieceLength;
+    const lastPieceIndex = Math.floor(totalLength/pieceLength);
+
+    return lastPieceIndex === pieceIndex ? lastPieceLength : pieceLength;
+};
+
+module.exports.blocksPerPiece = (torrent, pieceIndex) => {
+    const pieceLength = this.pieceLen(torrent, pieceIndex);
+    return Math.ceil(pieceLength/this.BLOCK_LEN);
+};
+
+module.exports.blockLen = (torrent, pieceIndex, blockIndex) => {
+    const pieceLength = this.pieceLen(torrent, pieceIndex);
+
+    const lastPieceLength = pieceLength % this.BLOCK_LEN;
+    const lastPieceIndex = Math.floor(pieceLength/this.BLOCK_LEN);
+
+    return blockIndex === lastPieceIndex ? lastPieceLength : this.BLOCK_LEN;
+};

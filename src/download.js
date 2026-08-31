@@ -5,11 +5,14 @@ const Buffer = require('buffer').Buffer;
 const tracker = require('./tracker');
 const message = require('./message');
 const Pieces = require('./Pieces');
+const Queue = require('./Queue');
 
 module.exports = torrent => {
-    const requested = [];
     tracker.getPeers(torrent, peers => {
-        const pieces = new Pieces(torrent.info.pieces.length / 20);
+        // The torrent.info.pieces is a buffer that contains 20-byte SHA-1 hash of each piece, 
+        // and the length gives you the total number of bytes in the buffer.That’s why we divide 
+        // by 20 to get the total number of pieces.
+        const pieces = new Pieces(torrent);
         peers.forEach(peer => download(peer, torrent, pieces));
     });
 };
@@ -21,7 +24,7 @@ function download(peer, torrent, pieces)
     socket.connect(peer.port, peer.ip, () => {
         socket.write(message.buildHandShake(torrent));
     });
-    const queue = {choked: true, queue: []};
+    const queue = new Queue(torrent);
     // the socket might recieve part of message or multiple message at once. so every message start with its length to help find out the start and end of the message
     onWholeMsg(socket, msg => msgHandler(msg, socket, pieces, queue));
 }
@@ -88,14 +91,13 @@ function requestPiece(socket, pieces, queue)
 {
     if(queue.choked) return null;
 
-    while(queue.queue.length)
+    while(queue.length())
     {
-        const pieceIndex = queue.shift();
-        if(pieces.needed(pieceIndex))
+        const pieceBlock = queue.deque();
+        if(pieces.needed(pieceBlock))
         {
-            // need to fix this
-            socket.write(message.buildRequest(pieceIndex));
-            pieces.addRequested(pieceIndex);
+            socket.write(message.buildRequest(pieceBlock));
+            pieces.addRequested(pieceBlock);
             break;
         }
     }
