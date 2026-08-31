@@ -141,3 +141,26 @@ module.exports.buildPort = payload => {
     buf.writeUInt32BE(payload, 5);
     return buf;
 };
+
+// if message length is not greater than 4 then the msg is keep-ahead message which has no id.
+// if message length is not greater than 5 then it has no payload
+// if the id is 6, 7, or 8 those messages split the payload into index, begin and block/length
+module.exports.parse = msg => {
+    const id = msg.length > 4 ? msg.readInt8(4) : null;
+    let payload = msg.length > 5 ? msg.slice(5) : null;
+    if(id === 6 || id === 7 || id === 8)
+    {
+        const rest = payload.slice(8);
+        payload = {
+            index: payload.readInt32BE(0),
+            begin: payload.readInt32BE(4)
+        };
+        payload[id === 7 ? 'block' : 'length'] = rest;
+    }
+    
+    return {
+        size: msg.readInt32BE(0),
+        id: id,
+        payload: payload
+    }
+};
