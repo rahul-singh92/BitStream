@@ -175,7 +175,14 @@ The handshake must be the very first message sent by the initiator of the connec
     *   `info_hash`: 20-byte SHA1 hash of the torrent's info dictionary.
     *   `peer_id`: 20-byte unique ID of the client connecting (often starts with client identification strings, like `-AZ...` for Azureus).
 
-### 2. Protocol Messages
+### 2. Understanding Pieces
+Immediately after the handshake, peers exchange information about which pieces of the file they currently possess. 
+
+A **piece** is a fixed-size chunk of the total file data, defined by the `piece length` in the `.torrent` file. 
+* **Zero-Indexed:** Pieces are requested by their index number, starting at `0` (e.g., index `0` is the first chunk, index `1` is the second).
+* **Final Piece Size:** If the total file size is not perfectly divisible by the piece length, the final piece will simply be smaller than the rest to make up the exact remainder.
+
+### 3. Protocol Messages
 After the handshake, all communication takes the form of length-prefixed messages. Unless otherwise specified, all integers are 4-byte big-endian.
 
 *   **Message Format:** `<length prefix><message ID><payload>`

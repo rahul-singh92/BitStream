@@ -3,27 +3,34 @@
 const net = require('net');
 const Buffer = require('buffer').Buffer;
 const tracker = require('./tracker');
+const message = require('./message');
 
 module.exports = torrent => {
     tracker.getPeers(torrent, peers => {
-        peers.forEach(download);
+        peers.forEach(peer => download(peer, torrent));
     });
 };
 
 function download(peer)
 {
-    const socket = net.Socket();
+    const socket = new net.Socket();
     socket.on('error', console.log);
     socket.connect(peer.port, peer.ip, () => {
-        // write a message here for connection
+        socket.write(message.buildHandShake(torrent));
     });
     // the socket might recieve part of message or multiple message at once. so every message start with its length to help find out the start and end of the message
-    onWholeMsg(socket, data => {
-        // handle response here
-    });
-    socket.on('data', data => {
+    onWholeMsg(socket, msg => msgHandler(msg, socket));
+}
 
-    });
+function msgHandler(msg, socket)
+{
+    if(isHandShake(msg)) socket.write(message.buildInterested());
+}
+
+function isHandShake(msg)
+{
+    return msg.length === msg.readUInt8(0) + 49 && 
+           msg.toString('utf8', 1) === 'BitTorrent protocol';
 }
 
 // Every time the socket recieves data, the socket.on callback is called. It concats the new data
