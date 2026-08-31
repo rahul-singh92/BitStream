@@ -7,13 +7,14 @@ const message = require('./message');
 const Pieces = require('./Pieces');
 const Queue = require('./Queue');
 
-module.exports = torrent => {
+module.exports = (torrent, path) => {
     tracker.getPeers(torrent, peers => {
         // The torrent.info.pieces is a buffer that contains 20-byte SHA-1 hash of each piece, 
         // and the length gives you the total number of bytes in the buffer.That’s why we divide 
         // by 20 to get the total number of pieces.
         const pieces = new Pieces(torrent);
-        peers.forEach(peer => download(peer, torrent, pieces));
+        const file = fs.openSync(path, 'w');
+        peers.forEach(peer => download(peer, torrent, pieces, file));
     });
 };
 
@@ -40,7 +41,7 @@ function msgHandler(msg, socket, pieces, queue)
         if(m.id === 1) unchokeHandler(socket, pieces, queue);
         if(m.id === 4) haveHandler(m.payload, socket, pieces, queue);
         if(m.id === 5) bitfieldHandler(m.payload, socket, pieces, queue);
-        if(m.id === 7) pieceHandler(m.payload, socket, pieces, queue);
+        if(m.id === 7) pieceHandler(socket, pieces, queue); // ....
     }
 }
 
@@ -82,10 +83,24 @@ function bitfieldHandler(payload, socket, pieces, queue)
     if(queueEmpty) requestPiece(socket, pieces, queue);
 }
 
-function pieceHandler(payload, socket, requested, queue)
+function pieceHandler(socket, pieces, queue, torrent, file, pieceResp)
 {
-    queue.shift();
-    requestPiece(socket, requested, queue);
+    console.log(pieceResp);
+    pieces.addReceived(pieceResp);
+
+    const offset = pieceResp.index * torrent.info['piece length'] + pieceResp.begin;
+    fs.write(file, pieceResp.block, 0, pieceResp.block.length, offset, () => {});
+
+    if(pieces.isDone())
+    {
+        console.log('Done!');
+        socket.end();
+        try { fs.closeSync(file); } catch(e) {}
+    }
+    else
+    {
+        requestPiece(socket, pieces, queue);
+    }
 }
 
 function requestPiece(socket, pieces, queue)

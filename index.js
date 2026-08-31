@@ -1,7 +1,7 @@
 'use strict';
-const fs = require('fs');
-const bencode = require('bencode');
-const tracker = require('./src/tracker');
+// const fs = require('fs');
+// const bencode = require('bencode');
+// const tracker = require('./src/tracker');
 const torrentParser = require('./src/torrent-parser');
 const download = require('./src/download');
 
@@ -11,8 +11,8 @@ const download = require('./src/download');
 
 const torrent = torrentParser.open("Marvel's Spider-Man 2 [FitGirl Repack].torrent");
 
-tracker.getPeers(torrent, peers => {
-    console.log('list of peers: ', peers);
-});
+// tracker.getPeers(torrent, peers => {
+//     console.log('list of peers: ', peers);
+// });
 
-download(torrent);
+download(torrent, torrent.info.name);
