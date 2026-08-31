@@ -6,23 +6,25 @@ const tracker = require('./tracker');
 const message = require('./message');
 
 module.exports = torrent => {
+    const requested = [];
     tracker.getPeers(torrent, peers => {
-        peers.forEach(peer => download(peer, torrent));
+        peers.forEach(peer => download(peer, torrent, requested));
     });
 };
 
-function download(peer)
+function download(peer, torrent, requested)
 {
     const socket = new net.Socket();
+    const queue = [];
     socket.on('error', console.log);
     socket.connect(peer.port, peer.ip, () => {
         socket.write(message.buildHandShake(torrent));
     });
     // the socket might recieve part of message or multiple message at once. so every message start with its length to help find out the start and end of the message
-    onWholeMsg(socket, msg => msgHandler(msg, socket));
+    onWholeMsg(socket, msg => msgHandler(msg, socket, requested, queue));
 }
 
-function msgHandler(msg, socket)
+function msgHandler(msg, socket, requested)
 {
     if(isHandShake(msg)) socket.write(message.buildInterested());
     else
@@ -31,9 +33,9 @@ function msgHandler(msg, socket)
 
         if(m.id === 0) chokeHandler();
         if(m.id === 1) unchokeHandler();
-        if(m.id === 4) haveHandler(m.payload);
+        if(m.id === 4) haveHandler(m.payload, socket, requested, queue);
         if(m.id === 5) bitfieldHandler(m.payload);
-        if(m.id === 7) pieceHandler(m.payload);
+        if(m.id === 7) pieceHandler(m.payload, socket, requested, queue);
     }
 }
 
@@ -53,9 +55,19 @@ function unchokeHandler()
 
 }
 
-function haveHandler(payload)
+function haveHandler(payload, socket, requested, queue)
 {
-
+    const pieceIndex = payload.readUInt32BE(0);
+    queue.push(pieceIndex);
+    if(queue.length === 1)
+    {
+        requestPiece(socket, requested, queue);
+    }
+    if(!requested[pieceIndex])
+    {
+        socket.write(message.buildRequest());
+    }
+    requested[pieceIndex] = true;
 }
 
 function bitfieldHandler(payload)
@@ -63,9 +75,23 @@ function bitfieldHandler(payload)
 
 }
 
-function pieceHandler(payload)
+function pieceHandler(payload, socket, requested, queue)
 {
+    queue.shift();
+    requestPiece(socket, requested, queue);
+}
 
+function requestPiece(socket, requested, queue)
+{
+    if(requested[queue[0]])
+    {
+        queue.shift();
+    }
+    else
+    {
+        // pseduo code as buildRequest actually takes slightly more complex argument
+        socket.write(message.buildRequest(pieceIndex));
+    }
 }
 
 // Every time the socket recieves data, the socket.on callback is called. It concats the new data
