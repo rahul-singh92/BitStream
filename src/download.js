@@ -9,15 +9,71 @@ const message = require('./message');
 const Pieces = require('./Pieces');
 const Queue = require('./Queue');
 
+// Only this many peer connections are attempted at once. Dialing hundreds of peers
+// simultaneously can overwhelm a home router's connection table and produce failures
+// that have nothing to do with the actual remote peers. As connections finish (success
+// or failure), the next queued peer is started automatically.
+const MAX_CONCURRENT_PEERS = 30;
+
+// How many outstanding block requests we keep in flight per peer at once. Requesting
+// one block, waiting for it, then requesting the next wastes almost all of the
+// connection's throughput on round-trip latency instead of actual transfer.
+const MAX_IN_FLIGHT_REQUESTS = 5;
+
+// Kill a connection if we don't hear anything from it (including the initial TCP
+// connect) within this long, so we can move on to the next peer quickly instead of
+// waiting on the OS's default (much longer) timeout.
+const SOCKET_TIMEOUT_MS = 10000;
+
 module.exports = (torrent, destPath) => {
-    tracker.getPeers(torrent, peers => {
-        // The torrent.info.pieces is a buffer that contains 20-byte SHA-1 hash of each piece,
-        // and the length gives you the total number of bytes in the buffer. That's why we divide
-        // by 20 to get the total number of pieces.
-        const pieces = new Pieces(torrent);
-        const files = openFiles(torrent, destPath);
-        peers.forEach(peer => download(peer, torrent, pieces, files));
+    // pieces/files are created ONCE, outside the tracker callback - the tracker re-announces
+    // periodically to fetch fresh peers, and we don't want to reset progress or reopen file
+    // descriptors every time that happens.
+    const pieces = new Pieces(torrent);
+    const files = openFiles(torrent, destPath);
+    const seenPeers = new Set(); // "ip:port" of peers we've already queued, so re-announces don't requeue the same peer
+    const pendingPeers = [];
+    let activeConnections = 0;
+    let done = false;
+
+    function maybeStartNext()
+    {
+        while(!done && activeConnections < MAX_CONCURRENT_PEERS && pendingPeers.length)
+        {
+            const peer = pendingPeers.shift();
+            activeConnections++;
+            download(peer, torrent, pieces, files, onDone, onPeerConnectionEnded);
+        }
+    }
+
+    function onPeerConnectionEnded()
+    {
+        activeConnections--;
+        maybeStartNext();
+    }
+
+    const stopAnnouncing = tracker.getPeers(torrent, peers => {
+        if(done) return;
+        peers.forEach(peer => {
+            const key = `${peer.ip}:${peer.port}`;
+            if(seenPeers.has(key)) return;
+            seenPeers.add(key);
+            pendingPeers.push(peer);
+        });
+        maybeStartNext();
     });
+
+    const statusInterval = setInterval(() => {
+        console.log(`status: ${activeConnections} active connections, ${pendingPeers.length} peers waiting`);
+    }, 15000);
+
+    function onDone()
+    {
+        if(done) return;
+        done = true;
+        clearInterval(statusInterval);
+        stopAnnouncing();
+    }
 };
 
 // Opens (and creates, if necessary) every file described by the torrent, and returns an
@@ -67,7 +123,7 @@ function writeBlock(files, absOffset, block)
 
     files.forEach(file => {
         const fileEnd = file.offset + file.length;
-        // This file isn't touched by the block at all — skip it.
+        // This file isn't touched by the block at all - skip it.
         if (blockEnd <= file.offset || absOffset >= fileEnd) return;
 
         const sliceStart = Math.max(absOffset, file.offset);
@@ -82,30 +138,58 @@ function writeBlock(files, absOffset, block)
     });
 }
 
-function download(peer, torrent, pieces, files)
+function download(peer, torrent, pieces, files, onDone, onPeerConnectionEnded)
 {
+    const peerLabel = `${peer.ip}:${peer.port}`;
     const socket = new net.Socket();
-    socket.on('error', err => console.log('socket error:', err.message));
+    const connState = { inFlight: 0 };
+
+    // Fires exactly once no matter how the connection ends (error, choke-destroy, natural
+    // close, timeout) - this is our single point for returning the connection slot to the pool.
+    let ended = false;
+    socket.once('close', () => {
+        if(ended) return;
+        ended = true;
+        onPeerConnectionEnded();
+    });
+
+    socket.setTimeout(SOCKET_TIMEOUT_MS, () => {
+        console.log(`timeout: ${peerLabel}`);
+        socket.destroy();
+    });
+
+    socket.on('error', err => console.log(`socket error [${peerLabel}]:`, err.message));
     socket.connect(peer.port, peer.ip, () => {
+        console.log(`connected to peer ${peerLabel}`);
         socket.write(message.buildHandShake(torrent));
     });
     const queue = new Queue(torrent);
     // the socket might recieve part of message or multiple message at once. so every message start with its length to help find out the start and end of the message
-    onWholeMsg(socket, msg => msgHandler(msg, socket, pieces, queue, torrent, files));
+    onWholeMsg(socket, msg => msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDone, connState));
 }
 
-function msgHandler(msg, socket, pieces, queue, torrent, files)
+function msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDone, connState)
 {
-    if(isHandShake(msg)) socket.write(message.buildInterested());
+    // Multiple whole messages can arrive in the same TCP read and get processed in one
+    // synchronous batch (see onWholeMsg's while loop). If an earlier message in that batch
+    // already caused us to tear down this connection, don't act on anything after it -
+    // otherwise we can try to write to a socket we've already destroyed/ended.
+    if(socket.destroyed) return;
+
+    if(isHandShake(msg))
+    {
+        console.log(`handshake ok with ${peerLabel}`);
+        socket.write(message.buildInterested());
+    }
     else
     {
         const m = message.parse(msg);
 
-        if(m.id === 0) chokeHandler(socket);
-        if(m.id === 1) unchokeHandler(socket, pieces, queue);
-        if(m.id === 4) haveHandler(socket, pieces, queue, m.payload);
-        if(m.id === 5) bitfieldHandler(socket, pieces, queue, m.payload);
-        if(m.id === 7) pieceHandler(socket, pieces, queue, torrent, files, m.payload);
+        if(m.id === 0) chokeHandler(socket, peerLabel);
+        if(m.id === 1) unchokeHandler(socket, pieces, queue, peerLabel, connState);
+        if(m.id === 4) haveHandler(socket, pieces, queue, m.payload, connState);
+        if(m.id === 5) bitfieldHandler(socket, pieces, queue, m.payload, connState);
+        if(m.id === 7) pieceHandler(socket, pieces, queue, torrent, files, m.payload, onDone, connState);
     }
 }
 
@@ -115,26 +199,28 @@ function isHandShake(msg)
            msg.toString('utf8', 1, 20) === 'BitTorrent protocol';
 }
 
-function chokeHandler(socket)
+function chokeHandler(socket, peerLabel)
 {
-    socket.end();
+    console.log(`choked by ${peerLabel}, closing connection`);
+    socket.destroy();
 }
 
-function unchokeHandler(socket, pieces, queue)
+function unchokeHandler(socket, pieces, queue, peerLabel, connState)
 {
+    console.log(`unchoked by ${peerLabel}, starting requests`);
     queue.choked = false;
-    requestPiece(socket, pieces, queue);
+    requestPiece(socket, pieces, queue, connState);
 }
 
-function haveHandler(socket, pieces, queue, payload)
+function haveHandler(socket, pieces, queue, payload, connState)
 {
     const pieceIndex = payload.readUInt32BE(0);
     const queueEmpty = queue.length === 0;
     queue.queue(pieceIndex);
-    if(queueEmpty) requestPiece(socket, pieces, queue);
+    if(queueEmpty) requestPiece(socket, pieces, queue, connState);
 }
 
-function bitfieldHandler(socket, pieces, queue, payload)
+function bitfieldHandler(socket, pieces, queue, payload, connState)
 {
     const queueEmpty = queue.length === 0;
     payload.forEach((byte, i) => {
@@ -144,11 +230,13 @@ function bitfieldHandler(socket, pieces, queue, payload)
             byte = Math.floor(byte/2);
         }
     });
-    if(queueEmpty) requestPiece(socket, pieces, queue);
+    if(queueEmpty) requestPiece(socket, pieces, queue, connState);
 }
 
-function pieceHandler(socket, pieces, queue, torrent, files, pieceResp)
+function pieceHandler(socket, pieces, queue, torrent, files, pieceResp, onDone, connState)
 {
+    connState.inFlight = Math.max(0, connState.inFlight - 1);
+
     pieces.printPercentDone();
 
     pieces.addReceived(pieceResp);
@@ -161,25 +249,28 @@ function pieceHandler(socket, pieces, queue, torrent, files, pieceResp)
         console.log('Done!');
         socket.end();
         try { files.forEach(f => fs.closeSync(f.fd)); } catch(e) {}
+        if(onDone) onDone();
     }
     else
     {
-        requestPiece(socket, pieces, queue);
+        requestPiece(socket, pieces, queue, connState);
     }
 }
 
-function requestPiece(socket, pieces, queue)
+// Keeps up to MAX_IN_FLIGHT_REQUESTS block requests outstanding on this connection at
+// once, instead of waiting for each block to arrive before asking for the next.
+function requestPiece(socket, pieces, queue, connState)
 {
-    if(queue.choked) return null;
+    if(queue.choked) return;
 
-    while(queue.length())
+    while(connState.inFlight < MAX_IN_FLIGHT_REQUESTS && queue.length())
     {
         const pieceBlock = queue.dequeue();
         if(pieces.needed(pieceBlock))
         {
             socket.write(message.buildRequest(pieceBlock));
             pieces.addRequested(pieceBlock);
-            break;
+            connState.inFlight++;
         }
     }
 }

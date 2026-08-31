@@ -7,25 +7,121 @@ const crypto = require('crypto');
 const torrentParser = require('./torrent-parser');
 const util = require('./util');
 
-module.exports.getPeers = (torrent, callback) => {
-    const socket = dgram.createSocket('udp4');
-    const url = torrent.announce.toString('utf8');
+const CONNECT_RETRY_MS = 15000;
+const MAX_CONNECT_RETRIES = 3; // retries per tracker before moving on to the next one
+const MIN_ANNOUNCE_INTERVAL_S = 30;
 
-    udpSend(socket, buildConnReq(), url); // send the connection reques
+// Collects every UDP tracker URL from the torrent (the primary `announce` field plus any
+// backups in `announce-list`), de-duplicated. This client only speaks the UDP tracker
+// protocol, so any http(s):// trackers in the list are skipped.
+function collectTrackerUrls(torrent)
+{
+    const urls = [];
+
+    if(torrent.announce) urls.push(torrent.announce.toString('utf8'));
+
+    if(torrent['announce-list'])
+    {
+        torrent['announce-list'].forEach(tier => {
+            tier.forEach(u => urls.push(u.toString('utf8')));
+        });
+    }
+
+    const seen = new Set();
+    return urls.filter(u => {
+        if(!u.startsWith('udp://')) return false;
+        if(seen.has(u)) return false;
+        seen.add(u);
+        return true;
+    });
+}
+
+// Repeatedly announces to a tracker and hands each fresh batch of peers to `callback`.
+// Tries every UDP tracker the torrent lists, in order, until one actually responds, then
+// keeps using that one. Returns a `stop()` function the caller can invoke to cancel future
+// re-announces and close the socket (e.g. once the download is complete).
+module.exports.getPeers = (torrent, callback) => {
+    const urls = collectTrackerUrls(torrent);
+
+    if(urls.length === 0)
+    {
+        console.log('tracker: no UDP tracker URLs found in this torrent (only HTTP trackers listed?) - cannot fetch peers');
+        return () => {};
+    }
+
+    console.log(`tracker: found ${urls.length} UDP tracker(s), trying ${urls[0]} first`);
+
+    const socket = dgram.createSocket('udp4');
+
+    let stopped = false;
+    let trackerIndex = 0;
+    let reannounceTimer = null;
+    let connectRetryTimer = null;
+    let connectRetries = 0;
+
+    function currentUrl() { return urls[trackerIndex]; }
+
+    function sendConnectReq()
+    {
+        if(stopped) return;
+        const url = currentUrl();
+        udpSend(socket, buildConnReq(), url);
+
+        // UDP is unreliable - if we don't hear back, retry a few times before giving up
+        // on this tracker and moving on to the next one in the list.
+        clearTimeout(connectRetryTimer);
+        connectRetryTimer = setTimeout(() => {
+            if(stopped) return;
+            connectRetries++;
+            if(connectRetries > MAX_CONNECT_RETRIES)
+            {
+                connectRetries = 0;
+                trackerIndex = (trackerIndex + 1) % urls.length;
+                console.log(`tracker: no response from ${url}, trying next tracker: ${currentUrl()}`);
+                sendConnectReq();
+                return;
+            }
+            console.log(`tracker: no response yet from ${url}, retrying (attempt ${connectRetries + 1})`);
+            sendConnectReq();
+        }, CONNECT_RETRY_MS);
+    }
+
+    socket.on('error', err => console.log('tracker socket error:', err.message));
 
     socket.on('message', response => {
+        if(stopped) return;
+
         if(respType(response) == 'connect')
         {
+            clearTimeout(connectRetryTimer);
+            connectRetries = 0;
             const connResp = parseConnReq(response); // recieve and parse connection response
             const announceReq = buildAnnounceReq(connResp.connectionId, torrent); // send announce request
-            udpSend(socket, announceReq, url);
+            udpSend(socket, announceReq, currentUrl());
         }
         else if(respType(response) == 'announce')
         {
             const announceResp = parseAnnounceReq(response); // parse announce request
+            console.log(`tracker (${currentUrl()}): ${announceResp.seeders} seeders, ${announceResp.leechers} leechers, ${announceResp.peers.length} peers returned, next announce in ${announceResp.interval}s`);
             callback(announceResp.peers); // pass peers to callback
+
+            if(stopped) return;
+            const nextAnnounceMs = Math.max(announceResp.interval, MIN_ANNOUNCE_INTERVAL_S) * 1000;
+            clearTimeout(reannounceTimer);
+            reannounceTimer = setTimeout(sendConnectReq, nextAnnounceMs);
         }
     });
+
+    sendConnectReq();
+
+    return function stop()
+    {
+        if(stopped) return;
+        stopped = true;
+        clearTimeout(reannounceTimer);
+        clearTimeout(connectRetryTimer);
+        try { socket.close(); } catch(e) {}
+    };
 };
 
 function udpSend(socket, message, rawURL, callback = () => {})
