@@ -161,7 +161,7 @@ function parseAnnounceReq(resp)
         seeders: resp.readUInt32BE(16),
         peers: group(resp.slice(20), 6).map(address => {
             return {
-                ip: address.slice(0, 4).join(' '),
+                ip: address.slice(0, 4).join('.'),
                 port: address.readUInt16BE(4)
             }
         })

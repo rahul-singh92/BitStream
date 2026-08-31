@@ -80,7 +80,7 @@ module.exports.buildHave = payload => {
 module.exports.buildBitfield = bitfield => {
     const buf = Buffer.alloc(14);
     // length
-    buf.writeUInt32BE(payload.length + 1, 0);
+    buf.writeUInt32BE(bitfield.length + 1, 0);
     // id
     buf.writeUInt8(5, 4);
     //bitfield

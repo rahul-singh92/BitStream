@@ -53,7 +53,7 @@ module.exports = class {
             return blocks.length + totalBlocks;
         }, 0);
 
-        const percent = Math.floor(download / total * 100);
+        const percent = Math.floor(downloaded / total * 100);
 
         process.stdout.write('progress: ' + percent + '%\r');
     }

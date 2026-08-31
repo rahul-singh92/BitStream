@@ -9,10 +9,10 @@ const download = require('./src/download');
 // const torrent = bencode.decode(fs.readFileSync('puppy.torrent'));
 // console.log(torrent.announce.toString('utf8')); // This is the announce URL of the tracker i.e. Tracker's URL
 
-const torrent = torrentParser.open("Marvel's Spider-Man 2 [FitGirl Repack].torrent");
+const torrent = torrentParser.open("big-buck-bunny.torrent");
 
 // tracker.getPeers(torrent, peers => {
 //     console.log('list of peers: ', peers);
 // });
 
-download(torrent, torrent.info.name);
+download(torrent);
