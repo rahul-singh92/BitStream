@@ -3,6 +3,7 @@
 const Buffer = require('buffer').Buffer;
 const torrentParser = require('./torrent-parser');
 const util = require('./util');
+const bencode = require('bencode');
 
 // handshake: <pstrlen><pstr><reserved><info_hash><peer_id>
 
@@ -19,8 +20,8 @@ module.exports.buildHandShake = torrent => {
     //pstr
     buf.write('BitTorrent protocol', 1);
     // reserved
-    buf.writeUInt32BE(0, 20);
-    buf.writeUInt32BE(0, 24);
+    buf.writeUInt32BE(0x00000000, 20);
+    buf.writeUInt32BE(0x00100000, 24);
     // info hash
     torrentParser.infoHash(torrent).copy(buf, 28);
     // peer id
@@ -165,4 +166,19 @@ module.exports.parse = msg => {
         id: id,
         payload: payload
     }
+};
+
+module.exports.buildExtendedHandshake = () => {
+    const payload = bencode.encode({ m: { ut_pex: 1 } });
+
+    const buf = Buffer.alloc(payload.length + 6);
+    // Total message length
+    buf.writeUInt32BE(payload.length + 2, 0);
+    // Message ID 20(Extended)
+    buf.writeUInt8(20, 4);
+    // Extended Message ID 0(Handshke)
+    buf.writeUInt8(0, 5);
+    payload.copy(buf, 6);
+
+    return buf;
 };

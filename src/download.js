@@ -9,6 +9,8 @@ const tracker = require('./tracker');
 const message = require('./message');
 const Pieces = require('./Pieces');
 const Queue = require('./Queue');
+const bencode = require('bencode');
+const { dict } = require('bencode/lib/encode');
 
 // Only this many peer connections are attempted at once. Dialing hundreds of peers
 // simultaneously can overwhelm a home router's connection table and produce failures
@@ -43,7 +45,7 @@ module.exports = (torrent, destPath) => {
         {
             const peer = pendingPeers.shift();
             activeConnections++;
-            download(peer, torrent, pieces, files, onDone, onPeerConnectionEnded);
+            download(peer, torrent, pieces, files, onDone, onPeerConnectionEnded, handleNewPeers);
         }
     }
 
@@ -63,6 +65,19 @@ module.exports = (torrent, destPath) => {
         });
         maybeStartNext();
     });
+
+    function handleNewPeers(peers) 
+    {
+        let addedCount = 0;
+        peers.forEach(peer => {
+            const key = `${peer.ip}:${peer.port}`;
+            if(seenPeers.has(key)) return;
+            seenPeers.add(key);
+            pendingPeers.push(peer);
+            addedCount++;
+        });
+        if(addedCount > 0) maybeStartNext();
+    };
 
     const statusInterval = setInterval(() => {
         console.log(`status: ${activeConnections} active connections, ${pendingPeers.length} peers waiting`);
@@ -139,7 +154,7 @@ function writeBlock(files, absOffset, block)
     });
 }
 
-function download(peer, torrent, pieces, files, onDone, onPeerConnectionEnded)
+function download(peer, torrent, pieces, files, onDone, onPeerConnectionEnded, onNewPeers)
 {
     const peerLabel = `${peer.ip}:${peer.port}`;
     const socket = new net.Socket();
@@ -164,12 +179,12 @@ function download(peer, torrent, pieces, files, onDone, onPeerConnectionEnded)
         console.log(`connected to peer ${peerLabel}`);
         socket.write(message.buildHandShake(torrent));
     });
-    const queue = new Queue(torrent);
+    const queue = new Queue(torrent, pieces);
     // the socket might recieve part of message or multiple message at once. so every message start with its length to help find out the start and end of the message
-    onWholeMsg(socket, msg => msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDone, connState));
+    onWholeMsg(socket, msg => msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDone, connState, onNewPeers));
 }
 
-function msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDone, connState)
+function msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDone, connState, onNewPeers)
 {
     // Multiple whole messages can arrive in the same TCP read and get processed in one
     // synchronous batch (see onWholeMsg's while loop). If an earlier message in that batch
@@ -181,6 +196,8 @@ function msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDon
     {
         console.log(`handshake ok with ${peerLabel}`);
         socket.write(message.buildInterested());
+        // for sending PEX capabilites
+        socket.write(message.buildExtendedHandshake());
     }
     else
     {
@@ -191,6 +208,7 @@ function msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDon
         if(m.id === 4) haveHandler(socket, pieces, queue, m.payload, connState);
         if(m.id === 5) bitfieldHandler(socket, pieces, queue, m.payload, connState);
         if(m.id === 7) pieceHandler(socket, pieces, queue, torrent, files, m.payload, onDone, connState);
+        if(m.id === 20) extendedHandler(m.payload, onNewPeers, peerLabel, connState);
     }
 }
 
@@ -263,6 +281,51 @@ function pieceHandler(socket, pieces, queue, torrent, files, pieceResp, onDone, 
     }
 }
 
+function extendedHandler(payload, onNewPeers, peerLabel, connState)
+{
+    // tell us which extended message it is
+    const extendedId = payload.readUInt8(0);
+    const dictBuf = payload.slice(1);
+
+    try {
+        const dict = bencode.decode(dictBuf);
+
+        if(extendedId === 0) // id 0 is extended handshake
+        {
+            if(dict.m && dict.m.ut_pex)
+            {
+                connState.pexId = dict.m.ut_pex; // check what id the peer mapped ut_pex to and save it
+            }
+        }
+        else if(connState.pexId && extendedId === connState.pexId)
+        {
+            // PEX message
+            if(dict.added)
+            {
+                const peers = [];
+
+                // added is a raw buffer of 6 byte (4 byte IP, 2 byte port)
+                for(let i = 0; i < dict.added.length; i+= 6)
+                {
+                    peers.push({
+                        ip: dict.added.slice(i, i + 4).join('.'),
+                        port: dict.added.readUInt16BE(i + 4)
+                    });
+                }
+                if(peers.length > 0)
+                {
+                    console.log(`[PEX] ${peerLabel} gossiped ${peers.length} new peers to us!`)
+                    onNewPeers(peers);
+                }
+            }
+        }
+    }
+    catch(e)
+    {
+        // ignore bencode parse errors
+    }
+}
+
 // Keeps up to MAX_IN_FLIGHT_REQUESTS block requests outstanding on this connection at
 // once, instead of waiting for each block to arrive before asking for the next.
 function requestPiece(socket, pieces, queue, connState)
@@ -272,6 +335,10 @@ function requestPiece(socket, pieces, queue, connState)
     while(connState.inFlight < MAX_IN_FLIGHT_REQUESTS && queue.length())
     {
         const pieceBlock = queue.dequeue();
+
+        // safety check if queue realise it dont need anything then break;
+        if(!pieceBlock) break;
+
         if(pieces.needed(pieceBlock))
         {
             socket.write(message.buildRequest(pieceBlock));

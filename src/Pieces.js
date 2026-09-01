@@ -19,21 +19,44 @@ module.exports = class {
     addRequested(pieceBlock)
     {
         const blockIndex = pieceBlock.begin / tp.BLOCK_LEN;
-        this._requested[pieceBlock.index][blockIndex] = true;
+        if(this._requested[pieceBlock.index])
+        {
+            this._requested[pieceBlock.index][blockIndex] = true;
+
+            setTimeout(() => {
+                if(this._received[pieceBlock.index] && !this._received[pieceBlock.index][blockIndex])
+                {
+                    this._received[pieceBlock.index][blockIndex] = false;
+                }
+            }, 3000);
+        }
+    }
+
+    isPieceDone(pieceIndex)
+    {
+        if(!this._received[pieceIndex]) return false;
+        return this._received[pieceIndex].every(i => i);
     }
 
     addReceived(pieceBlock)
     {
         const blockIndex = pieceBlock.begin / tp.BLOCK_LEN;
-        this._received[pieceBlock.index][blockIndex] = true;
+        if(this._received[pieceBlock.index])
+        {
+            this._received[pieceBlock.index][blockIndex] = true;
+        }
     }
 
     needed(pieceBlock)
     {
+        if(!pieceBlock) return false;
+
         if(this._requested.every(blocks => blocks.every(i => i)))
         {
             this._requested = this._received.map(blocks => blocks.slice());
         }
+        if(!this._requested[pieceBlock.index]) return false;
+
         const blockIndex = pieceBlock.begin / tp.BLOCK_LEN;
         return !this._requested[pieceBlock.index][blockIndex];
     }
@@ -53,7 +76,7 @@ module.exports = class {
             return blocks.length + totalBlocks;
         }, 0);
 
-        const percent = Math.floor(downloaded / total * 100);
+        const percent = (downloaded / total * 100).toFixed(2);
 
         process.stdout.write('progress: ' + percent + '%\r');
     }
