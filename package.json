@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "bencode": "^2.0.3",
-    "bignum": "^0.13.1"
+    "bignum": "^0.13.1",
+    "graceful-fs": "^4.2.11"
   }
 }

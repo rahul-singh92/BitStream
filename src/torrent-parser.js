@@ -1,6 +1,7 @@
 'use strict';
 
-const fs = require('fs');
+// const fs = require('fs');
+const fs = require('graceful-fs');
 const bencode = require('bencode');
 const crypto = require('crypto');
 const bignum = require('bignum');

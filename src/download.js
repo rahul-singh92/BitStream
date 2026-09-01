@@ -1,6 +1,7 @@
 'use strict';
 
-const fs = require('fs');
+// const fs = require('fs');
+const fs = require('graceful-fs');
 const path = require('path');
 const net = require('net');
 const Buffer = require('buffer').Buffer;
@@ -23,7 +24,7 @@ const MAX_IN_FLIGHT_REQUESTS = 5;
 // Kill a connection if we don't hear anything from it (including the initial TCP
 // connect) within this long, so we can move on to the next peer quickly instead of
 // waiting on the OS's default (much longer) timeout.
-const SOCKET_TIMEOUT_MS = 10000;
+const SOCKET_TIMEOUT_MS = 120000;
 
 module.exports = (torrent, destPath) => {
     // pieces/files are created ONCE, outside the tracker callback - the tracker re-announces
@@ -185,7 +186,7 @@ function msgHandler(msg, socket, pieces, queue, torrent, files, peerLabel, onDon
     {
         const m = message.parse(msg);
 
-        if(m.id === 0) chokeHandler(socket, peerLabel);
+        if(m.id === 0) chokeHandler(socket, peerLabel, queue, connState);
         if(m.id === 1) unchokeHandler(socket, pieces, queue, peerLabel, connState);
         if(m.id === 4) haveHandler(socket, pieces, queue, m.payload, connState);
         if(m.id === 5) bitfieldHandler(socket, pieces, queue, m.payload, connState);
@@ -199,10 +200,13 @@ function isHandShake(msg)
            msg.toString('utf8', 1, 20) === 'BitTorrent protocol';
 }
 
-function chokeHandler(socket, peerLabel)
+function chokeHandler(socket, peerLabel, queue, connState)
 {
-    console.log(`choked by ${peerLabel}, closing connection`);
-    socket.destroy();
+    console.log(`choked by ${peerLabel}, waiting in line...`);
+    queue.choked = true; // Stay connected, just stop asking for pieces
+
+    // The peer threw away our pending request, so rest our counter
+    connState.inFlight = 0;
 }
 
 function unchokeHandler(socket, pieces, queue, peerLabel, connState)
@@ -236,6 +240,8 @@ function bitfieldHandler(socket, pieces, queue, payload, connState)
 function pieceHandler(socket, pieces, queue, torrent, files, pieceResp, onDone, connState)
 {
     connState.inFlight = Math.max(0, connState.inFlight - 1);
+
+    console.log(`Received 16KB block from piece ${pieceResp.index}`);
 
     pieces.printPercentDone();
 

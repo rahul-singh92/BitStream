@@ -49,41 +49,30 @@ module.exports.getPeers = (torrent, callback) => {
         return () => {};
     }
 
-    console.log(`tracker: found ${urls.length} UDP tracker(s), trying ${urls[0]} first`);
+    // Only blast up to 20 trackers at once to avoid spamming your router
+    const activeUrls = urls.slice(0, 20); 
+    console.log(`tracker: broadcasting to ${activeUrls.length} UDP trackers simultaneously...`);
 
     const socket = dgram.createSocket('udp4');
-
     let stopped = false;
-    let trackerIndex = 0;
-    let reannounceTimer = null;
-    let connectRetryTimer = null;
-    let connectRetries = 0;
+    
+    // This dictionary will match incoming responses to the tracker they came from
+    const transactions = {}; 
+    let reannounceTimers = [];
 
-    function currentUrl() { return urls[trackerIndex]; }
-
-    function sendConnectReq()
+    // Note how we now pass 'url' into this function instead of looking at trackerIndex!
+    function sendConnectReq(url)
     {
         if(stopped) return;
-        const url = currentUrl();
-        udpSend(socket, buildConnReq(), url);
-
-        // UDP is unreliable - if we don't hear back, retry a few times before giving up
-        // on this tracker and moving on to the next one in the list.
-        clearTimeout(connectRetryTimer);
-        connectRetryTimer = setTimeout(() => {
-            if(stopped) return;
-            connectRetries++;
-            if(connectRetries > MAX_CONNECT_RETRIES)
-            {
-                connectRetries = 0;
-                trackerIndex = (trackerIndex + 1) % urls.length;
-                console.log(`tracker: no response from ${url}, trying next tracker: ${currentUrl()}`);
-                sendConnectReq();
-                return;
-            }
-            console.log(`tracker: no response yet from ${url}, retrying (attempt ${connectRetries + 1})`);
-            sendConnectReq();
-        }, CONNECT_RETRY_MS);
+        
+        // Generate a random ID and get its numeric value to use as a dictionary key
+        const txId = crypto.randomBytes(4);
+        const txIdNum = txId.readUInt32BE(0);
+        
+        // Save the transaction so we know who is replying to us
+        transactions[txIdNum] = url; 
+        
+        udpSend(socket, buildConnReq(txId), url);
     }
 
     socket.on('error', err => console.log('tracker socket error:', err.message));
@@ -91,35 +80,51 @@ module.exports.getPeers = (torrent, callback) => {
     socket.on('message', response => {
         if(stopped) return;
 
-        if(respType(response) == 'connect')
-        {
-            clearTimeout(connectRetryTimer);
-            connectRetries = 0;
-            const connResp = parseConnReq(response); // recieve and parse connection response
-            const announceReq = buildAnnounceReq(connResp.connectionId, torrent); // send announce request
-            udpSend(socket, announceReq, currentUrl());
-        }
-        else if(respType(response) == 'announce')
-        {
-            const announceResp = parseAnnounceReq(response); // parse announce request
-            console.log(`tracker (${currentUrl()}): ${announceResp.seeders} seeders, ${announceResp.leechers} leechers, ${announceResp.peers.length} peers returned, next announce in ${announceResp.interval}s`);
-            callback(announceResp.peers); // pass peers to callback
+        // Extract the action and transaction ID from the tracker's response
+        const action = response.readUInt32BE(0);
+        const txIdNum = response.readUInt32BE(4);
+        
+        // Look up which tracker this response belongs to using our dictionary!
+        const url = transactions[txIdNum];
+        if(!url) return; // If we don't recognize it (or it's an old packet), ignore it
 
+        if(action === 0) // Connect response
+        {
+            const connResp = parseConnReq(response);
+            
+            // Generate a NEW transaction ID for the announce request
+            const announceTxId = crypto.randomBytes(4);
+            const announceTxIdNum = announceTxId.readUInt32BE(0);
+            transactions[announceTxIdNum] = url;
+
+            const announceReq = buildAnnounceReq(connResp.connectionId, torrent, announceTxId);
+            udpSend(socket, announceReq, url);
+        }
+        else if(action === 1) // Announce response
+        {
+            const announceResp = parseAnnounceReq(response);
+            console.log(`tracker (${url}): ${announceResp.seeders} seeders, ${announceResp.leechers} leechers, ${announceResp.peers.length} peers returned`);
+            
+            // Pass the peers back to download.js!
+            callback(announceResp.peers);
+
+            // Setup the re-announce timer for THIS specific tracker so it keeps refilling
             if(stopped) return;
             const nextAnnounceMs = Math.max(announceResp.interval, MIN_ANNOUNCE_INTERVAL_S) * 1000;
-            clearTimeout(reannounceTimer);
-            reannounceTimer = setTimeout(sendConnectReq, nextAnnounceMs);
+            
+            const timer = setTimeout(() => sendConnectReq(url), nextAnnounceMs);
+            reannounceTimers.push(timer);
         }
     });
 
-    sendConnectReq();
+    // INSTANTLY fire connection requests to all 20 trackers at the exact same time!
+    activeUrls.forEach(url => sendConnectReq(url));
 
     return function stop()
     {
         if(stopped) return;
         stopped = true;
-        clearTimeout(reannounceTimer);
-        clearTimeout(connectRetryTimer);
+        reannounceTimers.forEach(t => clearTimeout(t));
         try { socket.close(); } catch(e) {}
     };
 };
@@ -144,7 +149,7 @@ function respType(resp)
 // 8       32-bit integer  action          0 // connect
 // 12      32-bit integer  transaction_id  ? // random
 // 16
-function buildConnReq()
+function buildConnReq(transactionId)
 {
     const buf = Buffer.alloc(16); // Reason because request require 64 bit(8 byte) + 32 bit(4 byte) + 32 bit(4 byte) = 16 byte
 
@@ -155,7 +160,7 @@ function buildConnReq()
     // action
     buf.writeUInt32BE(0, 8);
     //transaction id
-    crypto.randomBytes(4).copy(buf, 12);
+    transactionId.copy(buf, 12);
 
     return buf;
 }
@@ -192,7 +197,7 @@ function parseConnReq(resp)
 // 96      16-bit integer  port            ? // should be betwee
 // 98
 
-function buildAnnounceReq(connId, torrent, port=6881) // default 6881-6889 for torrent
+function buildAnnounceReq(connId, torrent, transactionId, port=6881) // default 6881-6889 for torrent
 {
     const buf = Buffer.allocUnsafe(98);
 
@@ -201,7 +206,7 @@ function buildAnnounceReq(connId, torrent, port=6881) // default 6881-6889 for t
     // action
     buf.writeUInt32BE(1, 8);
     // transaction ID
-    crypto.randomBytes(4).copy(buf, 12);
+    transactionId.copy(buf, 12);
     // info hash
     torrentParser.infoHash(torrent).copy(buf, 16);
     // peer ID
