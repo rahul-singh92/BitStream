@@ -14,6 +14,9 @@ module.exports = class {
         }
         this._requested = buildPiecesArray();
         this._received = buildPiecesArray();
+
+        const nPieces = torrent.info.pieces.length / 20;
+        this._pieceFreq = new Array(nPieces).fill(0);
     }
 
     addRequested(pieceBlock)
@@ -75,5 +78,15 @@ module.exports = class {
         const percent = ((downloadedPieces / totalPieces) * 100).toFixed(2);
 
         process.stdout.write('progress: ' + percent + '% (fully saved)\r');
+    }
+
+    addPeerPiece(pieceIndex) {
+        if (this._pieceFreq[pieceIndex] !== undefined) {
+            this._pieceFreq[pieceIndex]++;
+        }
+    }
+
+    getPieceFreq(pieceIndex) {
+        return this._pieceFreq[pieceIndex] || 0;
     }
 };

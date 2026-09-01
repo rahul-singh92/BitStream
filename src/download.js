@@ -40,6 +40,12 @@ module.exports = (torrent, destPath) => {
 
     verifyExistingPieces(torrent, pieces, files);
 
+    if (pieces.isDone()) {
+        console.log('Torrent is already 100% complete! Skipping network download.');
+        try { files.forEach(f => fs.closeSync(f.fd)); } catch(e) {}
+        process.exit(0);
+    }
+
     const seenPeers = new Set(); // "ip:port" of peers we've already queued, so re-announces don't requeue the same peer
     const pendingPeers = [];
     let activeConnections = 0;
@@ -304,9 +310,9 @@ function pieceHandler(socket, pieces, queue, torrent, files, pieceResp, onDone, 
 
     console.log(`Received 16KB block from piece ${pieceResp.index}`);
 
-    pieces.printPercentDone();
-
     pieces.addReceived(pieceResp);
+    
+    pieces.printPercentDone();
 
     const offset = pieceResp.index * torrent.info['piece length'] + pieceResp.begin;
     writeBlock(files, offset, pieceResp.block);
@@ -317,6 +323,7 @@ function pieceHandler(socket, pieces, queue, torrent, files, pieceResp, onDone, 
         socket.end();
         try { files.forEach(f => fs.closeSync(f.fd)); } catch(e) {}
         if(onDone) onDone();
+        process.exit(0);
     }
     else
     {

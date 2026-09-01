@@ -7,12 +7,16 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "electron ."
   },
   "dependencies": {
     "bencode": "^2.0.3",
     "bignum": "^0.13.1",
     "bittorrent-dht": "^10.0.0",
     "graceful-fs": "^4.2.11"
+  },
+  "devDependencies": {
+    "electron": "^44.1.0"
   }
 }
