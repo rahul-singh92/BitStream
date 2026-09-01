@@ -24,7 +24,7 @@ const MAX_CONCURRENT_PEERS = 30;
 // How many outstanding block requests we keep in flight per peer at once. Requesting
 // one block, waiting for it, then requesting the next wastes almost all of the
 // connection's throughput on round-trip latency instead of actual transfer.
-const MAX_IN_FLIGHT_REQUESTS = 5;
+const MAX_IN_FLIGHT_REQUESTS = 75;
 
 // Kill a connection if we don't hear anything from it (including the initial TCP
 // connect) within this long, so we can move on to the next peer quickly instead of

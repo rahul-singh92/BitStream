@@ -203,6 +203,8 @@ After the handshake, all communication takes the form of length-prefixed message
 
 ---
 ## Features
-* Core BitTorrent protocol integration (In Development)
-* Tracker communication and peer discovery (HTTP and UDP)
-* Direct peer-to-peer piece exchange
+* **Custom TCP/UDP Networking Engine:** Manages multiplexed block requests across dozens of concurrent peers.
+* **Parallel Tracker Broadcasting:** Simultaneously polls multiple UDP trackers to rapidly populate the peer queue.
+* **Decentralized Peer Discovery:** Integrates Kademlia-based Distributed Hash Tables (DHT) and Peer Exchange (PEX).
+* **Rarest First Algorithm:** Dynamically tracks piece availability across the swarm to prioritize the hardest-to-find data.
+* **Resilient Data Verification:** Uses SHA-1 hashing and synchronous file writing to guarantee data integrity and enable seamless download resuming.
