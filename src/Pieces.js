@@ -68,16 +68,12 @@ module.exports = class {
 
     printPercentDone() 
     {
-        const downloaded = this._received.reduce((totalBlocks, blocks) => {
-            return blocks.filter(i => i).length + totalBlocks;
-        }, 0);
+        // Only count a piece if EVERY block inside it is true
+        const downloadedPieces = this._received.filter(blocks => blocks.every(i => i)).length;
+        const totalPieces = this._received.length;
 
-        const total = this._received.reduce((totalBlocks, blocks) => {
-            return blocks.length + totalBlocks;
-        }, 0);
+        const percent = ((downloadedPieces / totalPieces) * 100).toFixed(2);
 
-        const percent = (downloaded / total * 100).toFixed(2);
-
-        process.stdout.write('progress: ' + percent + '%\r');
+        process.stdout.write('progress: ' + percent + '% (fully saved)\r');
     }
 };

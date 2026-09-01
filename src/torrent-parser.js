@@ -51,3 +51,9 @@ module.exports.blockLen = (torrent, pieceIndex, blockIndex) => {
 
     return blockIndex === lastPieceIndex ? lastPieceLength : this.BLOCK_LEN;
 };
+
+module.exports.pieceHash = (torrent, pieceIndex) => {
+    const start = pieceIndex * 20;
+    const end = start + 20;
+    return torrent.info.pieces.slice(start, end);
+};

@@ -9,8 +9,11 @@ const tracker = require('./tracker');
 const message = require('./message');
 const Pieces = require('./Pieces');
 const Queue = require('./Queue');
+const tp = require('./torrent-parser');
 const bencode = require('bencode');
 const { dict } = require('bencode/lib/encode');
+const crypto = require('crypto');
+const DHT = require('bittorrent-dht');
 
 // Only this many peer connections are attempted at once. Dialing hundreds of peers
 // simultaneously can overwhelm a home router's connection table and produce failures
@@ -34,10 +37,15 @@ module.exports = (torrent, destPath) => {
     // descriptors every time that happens.
     const pieces = new Pieces(torrent);
     const files = openFiles(torrent, destPath);
+
+    verifyExistingPieces(torrent, pieces, files);
+
     const seenPeers = new Set(); // "ip:port" of peers we've already queued, so re-announces don't requeue the same peer
     const pendingPeers = [];
     let activeConnections = 0;
     let done = false;
+
+    const dht = startDHT(tp.infoHash(torrent));
 
     function maybeStartNext()
     {
@@ -79,6 +87,29 @@ module.exports = (torrent, destPath) => {
         if(addedCount > 0) maybeStartNext();
     };
 
+    function startDHT(infoHash) 
+    {
+        console.log('Starting DHT node to find decentralized peers...');
+        const dht = new DHT();
+
+        // start listening to global network
+        dht.listen(0, () => {
+            console.log('DHT listening, searching for peers... ');
+            dht.lookup(infoHash);
+        })
+
+        // whenever a peer is found
+        dht.on('peer', (peer, hash, from) => {
+            // it return { host: 'IP', port: 1234 }
+            // Our engine expects { ip: 'IP', port: 1234 }
+            handleNewPeers([{
+                ip: peer.host,
+                port: peer.port
+            }]);
+        });
+        return dht;
+    }
+
     const statusInterval = setInterval(() => {
         console.log(`status: ${activeConnections} active connections, ${pendingPeers.length} peers waiting`);
     }, 15000);
@@ -89,6 +120,7 @@ module.exports = (torrent, destPath) => {
         done = true;
         clearInterval(statusInterval);
         stopAnnouncing();
+        dht.destroy();
     }
 };
 
@@ -103,7 +135,12 @@ function openFiles(torrent, destPath)
     if (!isMultiFile)
     {
         const filePath = destPath || torrent.info.name.toString('utf8');
-        const fd = fs.openSync(filePath, 'w');
+        let fd;
+        try {
+            fd = fs.openSync(filePath, 'r+');
+        } catch(err) {
+            fd = fs.openSync(filePath, 'w+');
+        }
         return [{
             fd,
             offset: 0,
@@ -122,7 +159,13 @@ function openFiles(torrent, destPath)
         const fullPath = path.join(rootDir, ...segments);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
 
-        const fd = fs.openSync(fullPath, 'w');
+        let fd;
+        try {
+            fd = fs.openSync(fullPath, 'r+');
+        } catch(err) {
+            fd = fs.openSync(fullPath, 'w+');
+        }
+
         const entry = { fd, offset, length: file.length };
         offset += file.length;
         return entry;
@@ -377,4 +420,60 @@ function onWholeMsg(socket, callback)
             handshake = false;
         }
     });
+}
+
+function readBlock(files, absOffset, buf)
+{
+    let bufOffset = 0;
+    const blockEnd = absOffset + buf.length;
+
+    files.forEach(file => {
+        const fileEnd = file.offset + file.length;
+        if(blockEnd <= file.offset || absOffset >= fileEnd) return;
+
+        const sliceStart = Math.max(absOffset, file.offset);
+        const sliceEnd = Math.min(blockEnd, fileEnd);
+        const sliceLen = sliceEnd - sliceStart;
+        const filePosition = sliceStart - file.offset;
+
+        try {
+            fs.readSync(file.fd, buf, bufOffset, sliceLen, filePosition);
+        } catch (err) {
+            // Ignore if file parts are missing
+        }
+        bufOffset += sliceLen;
+    });
+}
+
+function verifyExistingPieces(torrent, pieces, files) {
+    console.log('Checking existing files to recover progress... (This will take a minute for large files. Please wait!)');
+    
+    const nPieces = torrent.info.pieces.length / 20;
+    let piecesRestored = 0;
+    
+    for (let i = 0; i < nPieces; i++) {
+        const pieceLen = tp.pieceLen(torrent, i);
+        const buf = Buffer.alloc(pieceLen);
+        const offset = i * torrent.info['piece length'];
+        
+        readBlock(files, offset, buf); 
+        
+        const diskHash = crypto.createHash('sha1').update(buf).digest();
+        const expectedHash = tp.pieceHash(torrent, i);
+        
+        if (diskHash.equals(expectedHash)) {
+            const nBlocks = tp.blocksPerPiece(torrent, i);
+            for(let j = 0; j < nBlocks; j++) {
+                const pb = { index: i, begin: j * tp.BLOCK_LEN };
+                pieces.addReceived(pb);
+                pieces.addRequested(pb); // Mark requested so we don't ask peers for it again
+            }
+            piecesRestored++;
+        }
+    }
+   
+    if (piecesRestored > 0) {
+        console.log(`Successfully recovered ${piecesRestored} / ${nPieces} pieces from disk!`);
+        pieces.printPercentDone();
+    }
 }
