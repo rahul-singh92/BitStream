@@ -1,0 +1,39 @@
+index.js:
+    It all start with index.js where we will first implement torrent parser to parse the file and 
+    read the content there. 
+    The Torrent Parser is implemented in src/torrent-parser which is entry point after index.js
+    In the same file, after reading the file, we have the list of peers from tracker and start downloading
+    it using src/download.
+
+torrent-parser.js:
+    First we import "graceful-fs" rather than "fs" because it provide an API similar to "fs", 
+    but adds handling intended to make filesystem operation more resilient i.e. can easily 
+    work with multiple file at once by queuing the file and handling information.
+    Bancode is imported here because torrent are encoded in bencode format which are like 
+    d3:cow3:mooe => {"cow":"moe"} or li3e4:spame => [3, "spam"] or i3e => 3 or 4:spam => "spam".
+    Then crypto is imported because BitTorrent uses SHA-1 hashes for identifying/verifying pieces.
+    Then bignum is imported to handle large integers that may be larger than safe range but in 
+    torrent sizes, we would not need that big number but here we uses bignum to represent
+    sizes as integer buffers.
+    Then we have read the file which returns a raw byte of a torrent file as a Buffer.
+    And then bencode.decode is used to get the bencode content. Here result is javascript object.
+
+    So open returns torrent = {
+        announce: ..,
+        info: {
+            name: ..,
+            length: ..,
+            "piece length": ..,
+            pieces: ...
+        }
+    }
+    // Here note that the pieces field contains SHA-1 hash of each piece present to verify that the 
+    recieved piece is correct or not.
+
+
+    Here Size takes the torrent file and calculates the total size. The torrent file is a metadata.
+    torrent.info describes the actual content being downloaded.
+    In this size checkes torrent.info.files becuase if files is there then it is a multi file torrent,
+    otherwise it is a single file download.
+    So if it is a single file then the file length is in the torrent.info.length and if it is a multi
+    file then there is a list in files with each having piece length and the path.

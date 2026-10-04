@@ -1,0 +1,5 @@
+It all start with index.js where we will first implement torrent parser to parse the file and 
+read the content there. 
+The Torrent Parser is implemented in src/torrent-parser which is entry point after index.js
+In the same file, after reading the file, we have the list of peers from tracker and start downloading
+it using src/download.

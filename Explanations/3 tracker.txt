@@ -1,0 +1,92 @@
+Main Purpose:
+    Contact BitTorrent tracker and obtain the list of peers who are participating in the 
+    same torrent.
+
+// import dgram
+    dgram is Node's UDP networking module.
+    Tracker uses UDP, not TCP
+
+// import Buffer 
+    used to construct binary packets required by the bittorrent UDP tracker protocol.
+    Tracker request are not JSON or normal text. They have an exact binary layout.
+
+// import url parse 
+    It is to parse the url we get from torrent trackers url and send request to them
+
+// import crypto
+    It is used to generate random transaction ID and random keys
+
+// import torrent-parser
+    Provide infoHash and size, as tracker needs both information.
+    infoHash tell the tracker that i am looking for peers for this particular torrent.
+    And the size tell the tracker how much data is remaining.
+
+// import util js 
+    It generate your client's 20-byte PEER ID
+
+// Min_announce_interval = 30
+    **Tracker tell us how frequently we should announce again.
+    It make sure, it does not request before 30 seconds 
+
+    Need of re-announce? 
+        Because peer list changes. So client periodically asks for fresh peers.
+
+// collectionTrackerUrls() 
+    Torrent can contain announce url and announce-list which contains multiple tracker url.
+    It just collect all the UDP tracker URL.
+
+// .getPeers()
+    Here we will contact 20 trackers simultaneously so our services are not blocked.
+    It create a transaction list and generate 4 byte transaction id for each tracker and save 
+    the UDP url with transcation id. It help us to know particular tracker.
+
+    There are two stages: connect request -> announce request -> tracker return peers
+    So buildConnReq() send the connection request first.
+
+    When a UDP message arrives the "message" socket runs.
+    Here tracker response begin with action, transaction id . 
+    Here the action has 2 values 0 and 1 where 0 means connect and 1 means announce.
+
+    So if(action === 0), then tracker accepted our connection request.
+        Now we will parse response and extract connection id.
+        This connection id is needed for next request.
+        After this we build actual announce request by taking connectionID, torrent, announceTransactionID.
+        Using above parameter, we will build announce request.
+    else if(action === 1), here tracker returns a peer list
+        Here callback will send the array of {ip, port} to download.js to start TCP connection.
+        Reads the tracker's request interval(how often to refresh peers), and schedule the next 
+        announce using setTimeout.
+    After this, it fires the intital connect request to all the active tracker at once.
+
+// Announce request
+    This is where you tell the tracker, i am participating in this torrent. Give me some peers.
+    It has fixed schema of information it needs.
+
+// udpSend()
+    It parse the UDP url of tracker to get the ip and port
+
+
+// buildConnReq()
+    The UDP tracker connection request is exactly 16 bytes.
+    Structure: connectionID(0-8), action(8-12), transactionID(12-16)
+    Here connection id is already fixed defined by UDP protocol.
+
+// parseConnReq()
+    It extracts action, transaction id, connection id
+    then connection id is used for announce request
+
+// buildAnnounceReq()
+    It has a fixed structure which we needs to follow. 
+    Here you can see, we sent the 20 byte info-hash to tell the tracker that in which peer swarm 
+    we are interested in.
+    Here Peer ID, we generate client's 20 byte into the request
+
+// parseAnnounceReq()
+    The tracker responds with multiple field like interval, leechers, seeders, peers etc.
+    The Peer are encoded compactly as 6 bytes each.(4 byte -> IP address, 2 byte port)
+    So we group the response in chunks of 6 and convert each into {ip: ..., port: ...}
+    Finally 
+
+
+So in last it give us the peer list of that particular torrent with ip and port so that we 
+can build connection request with them later.

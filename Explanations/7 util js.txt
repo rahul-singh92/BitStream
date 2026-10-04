@@ -1,0 +1,10 @@
+It store the clients peer ID.
+// .genId
+    It generates the client ID of 20 Random bytes
+
+overwrite the first 8 bytes with -RT0001-
+so resulting id look like -RT0001-<random byte>
+
+and as if(!id)
+    the id is generated only once
+    every message during the session uses the same peer ID.

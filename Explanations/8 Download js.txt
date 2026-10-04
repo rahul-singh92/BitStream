@@ -1,0 +1,136 @@
+// import net: for TCP connection 
+
+- intially max 30 connection so that our router do not overload
+- Each peer can have up to 75 block request waiting for response
+    Here we are direclty waiting for 75 block request rather than requesting first then waiting.
+
+// create pieces manager so that track requested block, recieved etc
+// open destination file where downlload will begun
+
+// verifyExistingPieces()
+    It help to resume the download by reading the existing data from disk and checks which 
+    piece are valid.
+
+// if all piece recovered then 100 percent done
+
+// peer managemebt
+    create a set so that it prevents connecting to the same peer again
+    and then peer waiting to be connected to // pending peer
+
+// then track current active connection
+
+// DHT 
+    DHT network -> peers and store them 
+
+// maybeStartNext()
+    it maintains 30 max connection limit
+    
+// stopAnnouncing()
+    It calls the tracker js to get the peer list from tracker and add them here.
+
+// DHT peer discovery
+    whenever DHT discover another peer, it adds it to the same queue 
+    So in last both tracker and DHT fills the peer list
+
+
+// openFiles()
+    It handle both single file torrent and multi file torrent
+    
+    so for multi file torrent, it store the offset beacuse bittorent sees the entire torrent 
+    as one continuos byte stream
+    So our code store File A -> offset 0 , file B -> offset 100
+    so this allows a downloaded block to be mapped back to the correct file.
+
+// writeBlock()
+    This handle writing a download block.
+    Suppose download start at 90 and is 30 byte. But file a ends at 100 and file b starts at 100
+    So it detects it and split the block appropriately
+
+
+
+// Now connection part to peer starts
+
+// download()
+    create a socket to form a TCP connection between peer and you by using his ip and port.
+    Once connected, it send the bittorrent handshake.
+    // Queue Creation
+        const queue = new Queue(torrent, pieces)
+        This queue belongs to this peer. 
+        It know: what piece this peer has, what piece we need, what piece we are currently downloading
+    Recieve TCP data, i.e. onwholemsg(), so this help to divide added or multiple message send at Once
+
+// msgHandler()
+    Once complete message is extracted
+    Then we checks appropriate handler according to recieved message and call the appropriate function
+
+    Handshake:
+        checks whether the incoming message is handshake. if valid, our client says 
+        "I am interested in downloadin piece from you."
+        then we do socket.write() advertising PEX support to get more peers.
+
+// Choke
+    if peer send choke then we stop requesting but do not disconnect because, it might unchoke 
+    us later
+
+// unchoke
+    when send unchoke, we can start requesting the data
+
+// have
+    peer tell i have piece x, then our queue records checks and add it in queue for downlaoding.
+
+// bitfield
+    It tell which piece a peer has 
+
+// piece - actual data arrives
+
+    a peer send piece containng piece index, begin offset, block data 
+    So we do connState.inFlight--; becuase one request has been fulfilled
+
+    Then use addRecieved() to mark the block recieved
+
+// calculate absolute file position
+    const offset = pieceResp.index * torrent.info['piece length'] + pieceResp.begin;
+    So it tell where the block belongs in complete data stream
+    for ex: piece length = 256, piece index = 5, begin = 32
+        then absolute position = 5*256 + 32
+    then we writeBlock() to put it at correct phsyical position
+
+// completion 
+    if(piece.isDone)
+    when every block is arrived, the socket closed and files are closed.
+
+// PEX  
+    This handler extends bittorent message.
+    Our client first recieve the handshake message.
+    The peer might give other message id like ut_pex = 2
+    we store it and later if we recieve message id 2 then added field contains more peers.
+    Each peer encoded as 4bytes IP and 2 bytes port
+
+    Then we decode and call onNewPeer() to add them
+
+// Requesting blocks 
+    requestPiece()
+    This is where our queue and piece manager work together.
+    if(queue.choked) return; dont request while choked
+
+    then allow up to 75 request simultaneously
+    then piceBlock = queue.dequeue()
+    and asks what should i download next.
+
+    Then after this socket.write() sends piece index, begin, length to the peer
+    Then add it to the requested array
+
+// onWholeMsg()
+    TCP message reconstruction
+    TCP may give you incomplete messaage
+    Suppose expected 100 byte  but it gave 80 byte. So we cant parse it yet.
+    So we store it in savedBuffer which store incomplete data
+    When enough data arrivesm it exract one complete message and then remove it 
+    which also handle if multiple message arrives
+
+// Existing piece verification
+    This is where we added resume download 
+    So for every piece, we create a buffer of that piece size
+    Then read the existing data from disk.
+    Then create the SHA-1 hash of that readed data from disk and match it with the acutal hash.
+    and every block in that piece are marked recieved.

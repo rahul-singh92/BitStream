@@ -1,0 +1,113 @@
+First we import "graceful-fs" rather than "fs" because it provide an API similar to "fs", 
+    but adds handling intended to make filesystem operation more resilient i.e. can easily 
+    work with multiple file at once by queuing the file and handling information.
+
+Bancode is imported here because torrent are encoded in bencode format which are like 
+    d3:cow3:mooe => {"cow":"moe"} or li3e4:spame => [3, "spam"] or i3e => 3 or 4:spam => "spam".
+    
+Then crypto is imported because BitTorrent uses SHA-1 hashes for identifying/verifying pieces.
+    
+Then bignum is imported to handle large integers that may be larger than safe range but in 
+    torrent sizes, we would not need that big number but here we uses bignum to represent
+    sizes as integer buffers.
+
+Then we have read the file which returns a raw byte of a torrent file as a Buffer.
+
+// .open()
+And then bencode.decode is used to get the bencode content. Here result is javascript object.
+
+    So open returns torrent = {
+        announce: ..,
+        info: {
+            name: ..,
+            length: ..,
+            "piece length": ..,
+            pieces: ...
+        }
+    }
+    // Here note that the pieces field contains SHA-1 hash of each piece present to verify that the 
+    recieved piece is correct or not.
+
+
+// .size()
+Here Size takes the torrent file and calculates the total size. The torrent file is a 
+metadata.torrent.info describes the actual content being downloaded.
+    
+In this size checkes torrent.info.files becuase if files is there then it is a multi file torrent,
+otherwise it is a single file download.
+So if it is a single file then the file length is in the torrent.info.length and if it is a multi
+file then there is a list in files with each having piece length and the path.
+
+Why 8 byte buffer is used for size?
+    Because torrent tracker protocol. When client communicate with tracker, tracker request 
+    contains information such as "uploaded", "downloaded", "left". So size is used there as 8 byte
+    buffer.
+
+// .infoHash
+The info hash is the SHA-1 hash of the bencoded info dictionary of torrent.
+Concept: We dont hash entire torrent. We only take torrent.info and bencode it again 
+and then calculate SHA-1.
+
+Why?
+    This is to know which torrent swarm another peer belongs to? it uses the info hash.
+    for ex, user a -> hash a, user b -> hash a , so they know they both are downloading same torrent
+    SHA-1 : 20 byte
+    What Is Its Purpose
+    ->Unique Swarm Identifier (Tracker Communication)
+        When your client contacts a tracker to ask for peers, it doesn't send the file name or the entire torrent file. It sends this 20-byte info_hash as a parameter:
+        The tracker groups all peers sharing or downloading the exact same files under this 20-byte key.
+        If two users have the same infoHash, they are part of the exact same download swarm.
+    ->Peer Verification (The TCP Handshake)
+        When connecting to another peer over TCP, the very first message exchanged is a handshake packet. Both peers send the info_hash:
+        If the peer’s infoHash matches yours, the connection is accepted.
+        If it doesn't match (for instance, if the peer is downloading something else on that port), the socket is immediately closed.
+    ->Data Integrity Guarantee
+        Because torrent.info contains the cryptographic hashes of every single piece 
+        (torrent.info.pieces), hashing the info dictionary creates a secure root reference 
+        (similar to a Merkle root). If a malicious peer tries to feed you modified pieces or 
+        alter the file layout, the hashes won't match the infoHash you originally verified
+
+// .BLOCK_LEN
+    here 2^14 = 16284 bytes or 16 KiB. 
+    We will use this block size when requesting data fromo peers.
+    Piece: it is a relatively large section of the torrent. (Piece Length: 256 KiB)
+    Block: piece is divided into smaller blocks for network request. 256 / 16 = 16 blocks
+
+// .pieceLen
+    It determine how many bytes are in a particular piece.
+    Here torrent.info['piece length'] has the total piece size in byte
+    Exception : 
+        total size = 10.5 MB piece length = 1 MB , last piece = 0.5 MB. It does not need to be full piece size
+        Thats why we calculate: "lastPieceLen = totalLength % pieceLength;"
+        As we know the size of last piece length, we also need to know what is the index where it start from.
+        lastPieceIndex = Math.floor(totalLength / PieceLength); // 10.5 / 1 = 10
+        So piece 10 is the final piece.
+    So it says if it is last piece, then return its size otherwise the piece size
+
+// .blocksPerPiece
+    It is used for getting number of blocks for that piece.
+    // 100 KB piece / 16 KB block = 6.25 so total 7 blocks are needed to get the particular piece.
+
+// .blockLen 
+    This return how many byte should i request for this particular block.
+    100/16 = 6.25 and last block is 4 KB so "lastPieceLen = pieceLength % this.BLOCK_LEN";
+
+// .pieceHash
+    What is pieces in a torrent file? 
+        So if torrent is divided into x pieces, then it needs to know whether each piece is correct.
+        So when torrent is created, the torrent create calculates SHA-1 of each x piece.
+        Each SHA-1 result 20 bytes. so torrent store this hash "concatenated together".
+        so x pieces, then x*20 = 20x bytes.
+    But why each piece hash is there? 
+        Because the peer may send corrupted or unrelated data, so to verify it we need this.
+    
+    This function extracts the piece hash of every piece.
+    As SHA-1 is 20 byte of every piece, we get the pieceIndex*20 for start and start + 20 for 
+    its end, which will give the piece hash.
+
+
+// information
+    It parses the Bencoded torrent metadata and provides utility functions to calculate the 
+    torrent size, info hash, piece and block sizes, and retrieve the expected SHA-1 hash of 
+    each piece, which is later used by the downloader for peer communication and piece 
+    verification.

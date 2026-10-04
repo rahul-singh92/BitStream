@@ -1,0 +1,33 @@
+It decide which piece/block we should request next.
+
+// constructor
+    for every peer, the queue tracks the peerPieces like pieces that this peer has.
+    ex: peer A : [2, 4, 5, 6]
+    choke = true because we cant request data until the peer has unchoked us.
+    _currentPiece is the piece currently being downloaded from this peer.
+
+// queue()
+    This generally add a piece or block whenever a peer share there pieces i.e it get
+    add to the peer available piece list
+    and at the same time also increase global frequency so that if 3 peer has piece 7 
+    then pieceFreq[7] = 3
+
+// dequeue()
+    This decide what block to download next
+    It has 3 stage
+    1. Finish current piece we are downloading
+        So in this until a particular pieces, all blocks are downloaded, it request and download 
+        them first. After completing one piece we jump to next
+    2. Rarest first
+        It just simpley loop the pieceFreq and see which piece have lowest peer and download 
+        them first.
+        let rarestPiece = null;
+        let rarestFreq = Infinity;
+
+        Why this choice? Because rare piece are at greater risk of becoming unavailable.
+    3. End-game mode
+        Eventually we may have almost everything downloaded but a few blocks are missing.
+        If the peer specific queue dont give something useful, the code scans the entire 
+        torrent and find missing blocks
+        Here idea is: Dont let one slow peer hold up the final few block 
+        multiple peer can race to provide the missing block. 

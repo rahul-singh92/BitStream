@@ -1,0 +1,39 @@
+Now we have torrent metadata, peers and peer messages
+
+But we have to track, what we have already requested and recieved
+
+// in constructor class
+    We have created 2 array: requested and recieved. So they contain all the piece with blocks
+    and tell which is already requested so no duplication is done and recieved which keep 
+    track of the received block.
+    It is like
+    Piece 0 -> [false, false false, false, ...] number of blocks in that piece
+    piece 1 -> ,,,,
+
+// addRequested()
+    If block size is 16 KB, then it marks true for that block in requested array.
+    It also has a 3 second timeout, because if block is not received then it becomes
+    available for requesting again.
+    This prevent a dead/unresponsive peer from permanently blocking a block.
+
+// isPieceDone()
+    A piece is complete when every block is recieved, so it simply return the value of every 
+    block for that piece index
+
+// addRecieved()
+    This function is to mark the block as recieved
+
+// needed()
+    It just checks that do we still need this block.
+    if it is requested, then dont request it again.
+    And if it is not requested, then request it again.
+
+// isDone()
+    It means every block of every piece has been recieved.
+    So torrent complete
+
+// Piece Frequecny
+    It store how many connected peer have each piece.
+    like piece 0 -> 10 peers, piece 3 -> 1 peer
+    This enable us to implement, rarest first piece selection algorithm
+    

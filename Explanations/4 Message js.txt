@@ -1,0 +1,79 @@
+Now we have peers, we need to communicate with them
+
+// .buildHandshake
+    it is 68 bytes.
+    Here we are using infoHash so that when connected to peer, it can verify that they are 
+    talking about same torrent. So if info Hash does not match, then they are not talking 
+    about the same torrent.
+    Generate a peer ID to identify our bittorrent client.
+    
+// .buildKeepAlive
+    It is simply a 4 byte zero length message which says The connection is still alive
+
+// choke and unchoke
+    Choke:
+        It means peer is currently not allowing us to request data from them.
+
+    Unchoke: 
+        We can request data from them now.
+
+// .buildChoke
+    informs peers that we will not respond to piece request.
+
+// .buildUnchoke
+    informs peers that you are ready to serve piece request
+
+// interested and uninterested
+    interested:
+        it means you have piece i want.
+    After connecting to peer, we send this buildInterested(), so that the peer can unchoke and 
+    start sharing the data.
+
+// .buildInterested
+    Tell peer, you want piece they have
+
+// .buildUnIntereseted
+    Tell peer, you dont want any piece they have
+
+// .buildHave
+    A peer sends a Have message when it obtains a piece.
+    Pay load is piece index.
+    Broadcasta that you just verified and saved a specific piece index
+
+// .buildBitfield
+    Sent right after the handshake to indicate all pieces currently held.Each bit corresponds 
+    to an index(1 = have, 0 = missing)
+    It just tell that which piece you have and which dont
+
+// .buildRequest
+    This is actual request of data which contains piece index, begin, length
+    Request a specific block from an unchoked peer.
+
+// .buildPiece
+    The peer responds a request with a PIECE message : piece index, start, actual data block
+    Sends the actual requested data block back to peer.
+
+// .buildCancel
+    Allows the client to cancel the previous request.
+    Used during end-game mode when a block was already requested from another peer.
+
+// .buildPort
+    Communicates to the local DHT listening port to the peer(if the DHT extension is active)
+
+// .parse
+    It takes a raw TCP message and convert it into readable message
+    Here if message length:
+        less than equal to 4, it is a keep alive packet
+        greater than 4, byte 4 contains the id
+        greater than 5, byte 5 onwards contains raw payload
+
+    for request(6), piece(7) and cancel(8), the first 8 byte of payload are always structured
+    as index and begin.
+    The rest of the payload is assigned dynamically
+    i.e. if id is 7(piece) its block = rest(the file chunk)
+    if id is 6 or 8 its length = rest(length parameter)
+
+// .buildExtensionHandshake
+    PEX(Peer Exchange Table), which is an extension of the standard protocol.
+    payload is sent {m: { ut_pex: 1}} which tell the peer that we support peer exchange, and
+    you can send PEX message to me using extended ID: 1.
