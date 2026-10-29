@@ -1,22 +1,26 @@
 {
   "name": "bitstream",
+  "productName": "BitStream",
   "version": "1.0.0",
   "description": "A torrent app for downloading files",
   "license": "ISC",
   "author": "Rahul Singh Jadoun",
   "type": "commonjs",
-  "main": "index.js",
+  "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "electron ."
+    "start": "electron .",
+    "cli": "node index.js"
   },
   "dependencies": {
     "bencode": "^2.0.3",
-    "bignum": "^0.13.1",
     "bittorrent-dht": "^10.0.0",
     "graceful-fs": "^4.2.11"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^8.0.1",
+    "@electron-forge/maker-deb": "^8.0.1",
+    "@electron-forge/maker-squirrel": "^8.0.1",
+    "@electron-forge/maker-zip": "^8.0.1",
     "electron": "^44.1.0"
   }
 }

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'">
+  <meta name="color-scheme" content="light dark">
+  <title>BitStream</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <img class="logo" src="../assets/logo.svg" alt="">
+        <span class="brand-name">BitStream</span>
+      </div>
+      <nav id="nav" aria-label="Downloads"></nav>
+      <div class="side-foot">
+        <div class="seg" id="theme" role="group" aria-label="Theme"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="top">
+        <h1 id="title">All</h1>
+        <button id="add" class="add" aria-label="Add torrent"></button>
+        <div id="totalSpeed" class="total"></div>
+      </header>
+      <section id="list" class="list" aria-live="polite"></section>
+      <div id="empty" class="empty" hidden></div>
+
+      <div id="dock" class="dock">
+        <div id="dockResize" class="dock-resize" hidden></div>
+        <div id="dockTabs" class="dock-tabs" role="tablist" aria-label="Download details"></div>
+        <div id="dockBody" class="dock-body" hidden></div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="dlg"></dialog>
+  <dialog id="confirm"></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
